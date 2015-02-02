@@ -22,35 +22,80 @@ void MCP342X::init(byte A0, byte A1)
 	VRef = 2.048;
 }
 
+void MCP342X::selectResolution(byte resolution) 
+{
+	res = resolution & 3; 					// mask out everything but the low two bits
+	// build configuration register
+	confReg = (chan << BIT_C0) | (1 << BIT_OC) | (res << BIT_S0) | g;
+	
+	Serial.println(confReg);
+	Wire.beginTransmission(I2C_ADDRESS);
+	Wire.write(confReg);
+	Wire.endTransmission();
+}
+
 void MCP342X::selectChannel(byte channel, byte gain)
 {  
+	chan = channel & 3;
+	g = gain & 3;
 
     //configuration register, assuming 16 bit resolution
-	byte reg = 1 << BIT_RDY |
-			channel << BIT_C0 |
-			1 << BIT_OC |
-			1 << BIT_S1 |
-			gain;
+	confReg = (chan << BIT_C0) | (1 << BIT_OC) | (res << BIT_S0) | g;
 
-	Serial.println(reg);
+	Serial.println(confReg);
 	Wire.beginTransmission(I2C_ADDRESS);
-	Wire.write(reg);
+	Wire.write(confReg);
 	Wire.endTransmission();			   
 }
 
 double MCP342X::readADC()
 {
+	
+	long int highCode, zeroCode;
+	byte highByteMask;
+	
+	if (res == RESOLUTION_16) 
+	{
+		highCode = HIGH_CODE_16;
+		zeroCode = ZERO_CODE_16;
+		highByteMask = ADC_16_MASK;
+	} 
+	else if (res == RESOLUTION_14) 
+	{
+		highCode = HIGH_CODE_14;
+		zeroCode = ZERO_CODE_14;
+		highByteMask = ADC_14_MASK;
+	} 
+	else 
+	{
+		highCode = HIGH_CODE_12;
+		zeroCode = ZERO_CODE_12;
+		highByteMask = ADC_12_MASK;
+	}
+	
   	Wire.requestFrom(I2C_ADDRESS, (byte) 3);
-  	
+  
 	int h = Wire.read();
   	int l = Wire.read();
   	int r = Wire.read();
   
+	h &= highByteMask;
   	long t = h << 8 |  l;
   	
-	if (t >= 32768) t = 65536l - t;
+	if (t >= zeroCode) t = highCode - t;
   	
-	double v = (double) t * VRef/32768.0;
+	double v = (double) t * VRef/((double)(zeroCode));
+	
+	if (r & ADC_DATA_NEW_MASK) {
+		dataNew = false;
+	} else {
+		dataNew = true;
+	}
 
 	return v;
+}
+
+bool MCP342X::isDataNew() 
+{
+	return dataNew;
 }
